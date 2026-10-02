@@ -22,6 +22,34 @@ class GifBuddyClient {
 
   String get _base => 'http://$host';
 
+  Future<void> sendText(String text) async {
+    if (text.length > 160 || text.codeUnits.any((c) => c < 32 || c > 126)) {
+      throw ArgumentError(
+        'Use up to 160 printable letters, numbers, or symbols (no emoji).',
+      );
+    }
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 5),
+        sendTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+      ),
+    );
+    try {
+      await dio.post<Object?>(
+        '$_base/text',
+        data: {'text': text},
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      );
+    } on DioException catch (e) {
+      throw DeviceUnreachableException(
+        'Could not send text to $host: ${e.response?.data ?? e.message}',
+      );
+    } finally {
+      dio.close(force: true);
+    }
+  }
+
   Future<bool> ping() async {
     final dio = Dio(
       BaseOptions(
@@ -32,12 +60,14 @@ class GifBuddyClient {
       ),
     );
     if (kDebugMode) {
-      dio.interceptors.add(LogInterceptor(
-        requestHeader: true,
-        responseHeader: false,
-        responseBody: false,
-        logPrint: (o) => debugPrint('[gif-buddy:ping] $o'),
-      ));
+      dio.interceptors.add(
+        LogInterceptor(
+          requestHeader: true,
+          responseHeader: false,
+          responseBody: false,
+          logPrint: (o) => debugPrint('[gif-buddy:ping] $o'),
+        ),
+      );
     }
     try {
       final res = await dio.get<String>('$_base/');
@@ -62,10 +92,7 @@ class GifBuddyClient {
       ),
     );
     try {
-      final res = await dio.get<List<int>>(
-        url,
-        onReceiveProgress: onProgress,
-      );
+      final res = await dio.get<List<int>>(url, onReceiveProgress: onProgress);
       return Uint8List.fromList(res.data ?? const []);
     } finally {
       dio.close(force: true);
@@ -84,15 +111,17 @@ class GifBuddyClient {
       ),
     );
     if (kDebugMode) {
-      dio.interceptors.add(LogInterceptor(
-        request: true,
-        requestHeader: true,
-        requestBody: false, // binary
-        responseHeader: true,
-        responseBody: true,
-        error: true,
-        logPrint: (o) => debugPrint('[gif-buddy:upload] $o'),
-      ));
+      dio.interceptors.add(
+        LogInterceptor(
+          request: true,
+          requestHeader: true,
+          requestBody: false, // binary
+          responseHeader: true,
+          responseBody: true,
+          error: true,
+          logPrint: (o) => debugPrint('[gif-buddy:upload] $o'),
+        ),
+      );
     }
     debugPrint(
       '[gif-buddy:upload] POST $_base/gif '
@@ -119,7 +148,9 @@ class GifBuddyClient {
           onProgress?.call(sent, total);
         },
       );
-      debugPrint('[gif-buddy:upload] status=${res.statusCode} body=${res.data}');
+      debugPrint(
+        '[gif-buddy:upload] status=${res.statusCode} body=${res.data}',
+      );
       if (res.statusCode == 200) {
         final size = res.data?['size'];
         return size is int ? size : bytes.length;

@@ -35,6 +35,35 @@ class _MyHomePageState extends State<MyHomePage> {
   GiphyGif? _gif;
   String _host = DeviceSettings.defaultHost;
   bool? _deviceOnline;
+  final _textController = TextEditingController();
+  bool _sendingText = false;
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendText() async {
+    setState(() => _sendingText = true);
+    try {
+      await GifBuddyClient(_host).sendText(_textController.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _textController.text.isEmpty
+                ? 'LED text cleared.'
+                : 'Text sent to badge.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) _showError(e.toString());
+    } finally {
+      if (mounted) setState(() => _sendingText = false);
+    }
+  }
 
   @override
   void initState() {
@@ -58,9 +87,9 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _openSettings() async {
-    final newHost = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-    );
+    final newHost = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const SettingsScreen()));
     if (newHost != null && newHost != _host) {
       setState(() {
         _host = newHost;
@@ -71,10 +100,15 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   String? _pickUrl(GiphyGif gif) {
+    // The badge decoder accepts GIFs up to 480 pixels wide.
+    // Giphy's animated fixed-width rendition is 200px and fits comfortably.
+    final small = gif.images.fixedWidth;
+    if (small?.url != null) return small!.url;
     final original = gif.images.original;
     final downsized = gif.images.downsized;
     final originalSize = int.tryParse(original?.size ?? '');
-    if (original?.url != null && (originalSize == null || originalSize <= _maxBytes)) {
+    if (original?.url != null &&
+        (originalSize == null || originalSize <= _maxBytes)) {
       return original!.url;
     }
     if (downsized?.url != null) {
@@ -129,7 +163,8 @@ class _MyHomePageState extends State<MyHomePage> {
       debugPrint('[gif-buddy] downloaded ${bytes.length} bytes');
       if (bytes.length > _maxBytes) {
         debugPrint('[gif-buddy] over max ($_maxBytes), trying downsized…');
-        final downsizedUrl = gif.images.downsized?.url;
+        final downsizedUrl =
+            gif.images.fixedWidthSmall?.url ?? gif.images.downsized?.url;
         if (downsizedUrl != null && downsizedUrl != url) {
           final fallback = await client.downloadGif(downsizedUrl);
           debugPrint('[gif-buddy] downsized download ${fallback.length} bytes');
@@ -138,7 +173,9 @@ class _MyHomePageState extends State<MyHomePage> {
               'GIF is ${fallback.length} bytes after downsize; device max is $_maxBytes.',
             );
           }
-          debugPrint('[gif-buddy] uploading ${fallback.length} bytes to $_host');
+          debugPrint(
+            '[gif-buddy] uploading ${fallback.length} bytes to $_host',
+          );
           await client.uploadGif(
             fallback,
             onProgress: (s, t) => progress.value = t > 0 ? s / t : null,
@@ -176,7 +213,9 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _sendTestGif() async {
-    debugPrint('[gif-buddy:test] === BEGIN test send (assets/gengar.gif → $_host) ===');
+    debugPrint(
+      '[gif-buddy:test] === BEGIN test send (assets/gengar.gif → $_host) ===',
+    );
     await _refreshLiveness();
     if (!mounted) return;
 
@@ -236,7 +275,11 @@ class _MyHomePageState extends State<MyHomePage> {
             children: [
               LinearProgressIndicator(value: value),
               const SizedBox(height: 12),
-              Text(value == null ? 'Uploading…' : '${(value * 100).toStringAsFixed(0)}%'),
+              Text(
+                value == null
+                    ? 'Uploading…'
+                    : '${(value * 100).toStringAsFixed(0)}%',
+              ),
             ],
           ),
         ),
@@ -250,7 +293,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _showSuccess(int bytes) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Sent ${(bytes / 1024).toStringAsFixed(1)} KB to gif-buddy.')),
+      SnackBar(
+        content: Text(
+          'Sent ${(bytes / 1024).toStringAsFixed(1)} KB to gif-buddy.',
+        ),
+      ),
     );
   }
 
@@ -265,7 +312,9 @@ class _MyHomePageState extends State<MyHomePage> {
     final offline = _deviceOnline == false;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_gif?.title?.isNotEmpty == true ? _gif!.title! : widget.title),
+        title: Text(
+          _gif?.title?.isNotEmpty == true ? _gif!.title! : widget.title,
+        ),
         backgroundColor: Colors.red.shade500,
         actions: [
           IconButton(
@@ -284,12 +333,42 @@ class _MyHomePageState extends State<MyHomePage> {
           if (offline)
             MaterialBanner(
               backgroundColor: Colors.amber.shade100,
-              content: Text('Device "$_host" appears offline. You can still pick a GIF.'),
+              content: Text(
+                'Device "$_host" appears offline. You can still pick a GIF.',
+              ),
               leading: const Icon(Icons.wifi_off),
               actions: [
-                TextButton(onPressed: _refreshLiveness, child: const Text('Retry')),
+                TextButton(
+                  onPressed: _refreshLiveness,
+                  child: const Text('Retry'),
+                ),
               ],
             ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _textController,
+                  maxLength: 160,
+                  maxLines: 1,
+                  decoration: const InputDecoration(
+                    labelText: 'Scrolling badge text',
+                    hintText: 'HELLO FROM GIF BUDDY',
+                    helperText:
+                        'Letters, numbers and symbols. Empty text clears the LEDs.',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: _sendingText ? null : _sendText,
+                  icon: const Icon(Icons.send),
+                  label: Text(_sendingText ? 'Sending…' : 'Send text'),
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: SafeArea(
               child: Center(
