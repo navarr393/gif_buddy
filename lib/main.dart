@@ -7,7 +7,9 @@ import 'device_settings.dart';
 import 'gif_buddy_client.dart';
 import 'settings_screen.dart';
 
-const _giphyApiKey = 'ZwNN1sABFBjnLE3iaVFX8nyUX00YrcI8';
+// Create a Giphy API key at https://developers.giphy.com/dashboard/
+// And insert it in the line below:
+const _giphyApiKey = '';
 const _maxBytes = 4 * 1024 * 1024;
 
 void main() {
